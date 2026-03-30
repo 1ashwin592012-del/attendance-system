@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Smart Attendance System</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+    font-family: Arial;
+    margin: 0;
+    background: linear-gradient(to right, #667eea, #764ba2);
+    color: white;
+}
+.container { padding: 20px; }
+.card {
+    background: white;
+    color: black;
+    padding: 15px;
+    border-radius: 10px;
+    margin-top: 15px;
+}
+button {
+    padding: 8px;
+    margin: 5px;
+    border: none;
+    background: #667eea;
+    color: white;
+    border-radius: 5px;
+    cursor: pointer;
+}
+input, select { padding: 8px; margin: 5px; }
+.hidden { display: none; }
+</style>
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="loginPage" class="container">
+    <h1>🔐 Login</h1>
+    <input id="username" placeholder="Username"><br>
+    <input id="password" type="password" placeholder="Password"><br>
+    <button onclick="login()">Login</button>
+</div>
+
+<!-- MAIN -->
+<div id="mainPage" class="container hidden">
+
+<h1>📊 Attendance System</h1>
+<p id="userInfo"></p>
+
+<!-- ADMIN PANEL -->
+<div id="adminPanel" class="card">
+    <h3>👑 Admin Panel</h3>
+
+    <h4>Add Teacher</h4>
+    <input id="newUser" placeholder="Username">
+    <input id="newPass" placeholder="Password">
+    <select id="teacherClass">
+        <option>Class 6</option>
+        <option>Class 7</option>
+        <option>Class 8</option>
+    </select>
+    <button onclick="addTeacher()">Add</button>
+
+    <h4>Remove Teacher</h4>
+    <select id="teacherList"></select>
+    <button onclick="removeTeacher()">Remove</button>
+</div>
+
+<!-- DATE -->
+<div class="card">
+    <h3>Select Date</h3>
+    <input type="date" id="date">
+</div>
+
+<!-- ADD STUDENT -->
+<div class="card">
+    <h3>Add Student</h3>
+    <input id="studentName" placeholder="Name">
+    <select id="classSelect">
+        <option>Class 6</option>
+        <option>Class 7</option>
+        <option>Class 8</option>
+    </select>
+    <button onclick="addStudent()">Add</button>
+</div>
+
+<!-- TABLE -->
+<div class="card">
+    <h3>Mark Attendance</h3>
+    <table border="1" width="100%" id="table"></table>
+</div>
+
+<!-- DATE VIEW -->
+<div class="card">
+    <h3>📅 View by Date</h3>
+    <input type="date" id="viewDate" onchange="viewByDate()">
+    <div id="dateData"></div>
+</div>
+
+<!-- STUDENT VIEW -->
+<div class="card">
+    <h3>👤 Student Record</h3>
+    <select id="studentSelect" onchange="viewStudentRecord()"></select>
+    <div id="studentData"></div>
+</div>
+
+<!-- CHART -->
+<div class="card">
+    <h3>📊 Chart</h3>
+    <canvas id="chart"></canvas>
+</div>
+
+</div>
+
+<script>
+
+let students = JSON.parse(localStorage.getItem("students")) || [];
+let attendance = JSON.parse(localStorage.getItem("attendance")) || {};
+let teachers = JSON.parse(localStorage.getItem("teachers")) || [
+    {username:"admin",password:"1234",role:"admin",class:"All"}
+];
+
+let currentUser = null;
+let chart;
+
+// LOGIN
+function login() {
+    let u = username.value;
+    let p = password.value;
+
+    let user = teachers.find(t => t.username === u && t.password === p);
+    if (!user) return alert("Wrong login");
+
+    currentUser = user;
+
+    loginPage.classList.add("hidden");
+    mainPage.classList.remove("hidden");
+
+    userInfo.innerText = "Logged in as: " + user.username + " (" + user.role + ")";
+
+    if (user.role !== "admin") {
+        adminPanel.style.display = "none";
+    } else {
+        loadTeacherList();
+    }
+
+    loadTable();
+}
+
+// TEACHER MANAGEMENT
+function addTeacher() {
+    teachers.push({
+        username:newUser.value,
+        password:newPass.value,
+        role:"teacher",
+        class:teacherClass.value
+    });
+
+    localStorage.setItem("teachers", JSON.stringify(teachers));
+    loadTeacherList();
+}
+
+function removeTeacher() {
+    let i = teacherList.value;
+    teachers.splice(i,1);
+    localStorage.setItem("teachers", JSON.stringify(teachers));
+    loadTeacherList();
+}
+
+function loadTeacherList() {
+    teacherList.innerHTML = "";
+    teachers.forEach((t,i)=>{
+        if(t.role==="teacher"){
+            teacherList.innerHTML += `<option value="${i}">
+            ${t.username} (${t.class})</option>`;
+        }
+    });
+}
+
+// STUDENTS
+function addStudent() {
+    students.push({name:studentName.value,class:classSelect.value});
+    localStorage.setItem("students", JSON.stringify(students));
+    loadTable();
+}
+
+function removeStudent(i) {
+    if (!confirm("Delete student?")) return;
+
+    students.splice(i,1);
+
+    for (let d in attendance) {
+        delete attendance[d][i];
+    }
+
+    localStorage.setItem("students", JSON.stringify(students));
+    localStorage.setItem("attendance", JSON.stringify(attendance));
+
+    loadTable();
+}
+
+// ATTENDANCE
+function markAttendance(i,status){
+    let d=date.value;
+    if(!d) return alert("Select date");
+
+    if(!attendance[d]) attendance[d]={};
+    attendance[d][i]=status;
+
+    localStorage.setItem("attendance", JSON.stringify(attendance));
+    loadTable();
+}
+
+function percent(i){
+    let t=0,p=0;
+    for(let d in attendance){
+        if(attendance[d][i]){
+            t++;
+            if(attendance[d][i]=="present") p++;
+        }
+    }
+    return t?((p/t)*100).toFixed(1):0;
+}
+
+// TABLE
+function loadTable(){
+    table.innerHTML=`<tr>
+    <th>Name</th><th>Class</th>
+    <th>P</th><th>A</th><th>%</th><th>X</th></tr>`;
+
+    studentSelect.innerHTML="<option value=''>Select</option>";
+
+    let labels=[],data=[];
+
+    students.forEach((s,i)=>{
+
+        if(currentUser.role==="teacher" && s.class!==currentUser.class) return;
+
+        let per=percent(i);
+
+        table.innerHTML+=`
+        <tr>
+        <td>${s.name}</td>
+        <td>${s.class}</td>
+        <td><button onclick="markAttendance(${i},'present')">✔</button></td>
+        <td><button onclick="markAttendance(${i},'absent')">✖</button></td>
+        <td>${per}%</td>
+        <td><button onclick="removeStudent(${i})">🗑️</button></td>
+        </tr>`;
+
+        studentSelect.innerHTML+=`<option value="${i}">${s.name}</option>`;
+
+        labels.push(s.name);
+        data.push(per);
+    });
+
+    drawChart(labels,data);
+}
+
+// CHART
+function drawChart(labels,data){
+    if(chart) chart.destroy();
+    chart=new Chart(chartCanvas.getContext("2d"),{
+        type:"bar",
+        data:{labels,datasets:[{label:"%",data}]}
+    });
+}
+
+// DATE VIEW
+function viewByDate(){
+    let d=viewDate.value;
+    if(!attendance[d]) return dateData.innerHTML="No data";
+
+    let html="<table border=1 width=100%><tr><th>Name</th><th>Status</th></tr>";
+
+    students.forEach((s,i)=>{
+        let st=attendance[d][i]||"Not Marked";
+        html+=`<tr><td>${s.name}</td><td>${st}</td></tr>`;
+    });
+
+    dateData.innerHTML=html;
+}
+
+// STUDENT VIEW
+function viewStudentRecord(){
+    let i=studentSelect.value;
+    if(i==="") return;
+
+    let html="<table border=1 width=100%><tr><th>Date</th><th>Status</th></tr>";
+
+    Object.keys(attendance).sort().forEach(d=>{
+        let st=attendance[d][i]||"Not Marked";
+        html+=`<tr><td>${d}</td><td>${st}</td></tr>`;
+    });
+
+    studentData.innerHTML=html;
+}
+
+</script>
+<script src="2.js"></script>
+
+</body>
+</html>
